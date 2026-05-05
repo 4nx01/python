@@ -10,6 +10,7 @@ from minecraft_client.network import MinecraftClient, Position
 from minecraft_client.world import WorldState, BlockType
 from minecraft_client.anomaly_detector import AnomalyDetector
 from minecraft_client.esp import ESPRenderer
+from minecraft_client.menu import FeatureConfig, MenuSystem, KeybindHandler
 
 # Setup logging
 logging.basicConfig(
@@ -24,21 +25,61 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MinecraftESPClient:
-    """Main ESP Client Application"""
+    """Main ESP Client Application with Menu System"""
     
     def __init__(self):
         self.client = MinecraftClient(SERVER_HOST, SERVER_PORT, USERNAME)
         self.world = WorldState()
         self.detector = AnomalyDetector(self.world)
         self.renderer = ESPRenderer(self.world, self.detector)
+        
+        # Menu system
+        self.features = FeatureConfig()
+        self.menu = MenuSystem(self.features)
+        self.keybind_handler = KeybindHandler()
+        
         self.running = False
         self.ticks = 0
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        self._setup_callbacks()
+
+    def _setup_callbacks(self):
+        """Setup keybind callbacks"""
+        self.keybind_handler.register_callback('p', self._toggle_chest_esp)
+        self.keybind_handler.register_callback('o', self._toggle_anomaly_detection)
+        self.keybind_handler.register_callback('l', self._toggle_chunk_marking)
+        self.keybind_handler.register_callback('shift+right', self._toggle_menu)
+
+    def _toggle_chest_esp(self):
+        """Toggle chest ESP"""
+        state = self.features.toggle("chest_esp")
+        icon = "🟢" if state else "🔴"
+        print(f"\n{icon} Chest ESP: {'ON' if state else 'OFF'}")
+
+    def _toggle_anomaly_detection(self):
+        """Toggle anomaly detection"""
+        state = self.features.toggle("anomaly_detection")
+        icon = "🟢" if state else "🔴"
+        print(f"\n{icon} Anomaly Detection: {'ON' if state else 'OFF'}")
+
+    def _toggle_chunk_marking(self):
+        """Toggle chunk marking"""
+        state = self.features.toggle("chunk_marking")
+        icon = "🟢" if state else "🔴"
+        print(f"\n{icon} Chunk Marking: {'ON' if state else 'OFF'}")
+
+    def _toggle_menu(self):
+        """Toggle menu"""
+        self.menu.toggle_menu()
 
     async def run(self):
         """Main game loop (20 TPS)"""
         self.running = True
         self.logger.info("Starting Minecraft ESP Client...")
+        
+        # Start keybind listener in background
+        self.keybind_handler.start()
         
         # Connect to server
         if not await self.client.connect():
@@ -47,7 +88,6 @@ class MinecraftESPClient:
         
         try:
             tick_duration = 1.0 / 20  # 20 TPS
-            last_render = 0
             
             while self.running:
                 start_tick = time.time()
@@ -69,9 +109,8 @@ class MinecraftESPClient:
                 
                 # Periodic rendering (every 20 ticks = 1 second)
                 if self.ticks % 20 == 0:
-                    self.renderer.render(ESP_RENDER_DISTANCE)
-                    if CONSOLE_OUTPUT:
-                        self.renderer.print_report()
+                    if self.features.get("auto_report"):
+                        self._render_and_report()
                 
                 # Cleanup distant chunks every 40 ticks
                 if self.ticks % 40 == 0:
@@ -89,6 +128,16 @@ class MinecraftESPClient:
             self.logger.error(f"Error in main loop: {e}", exc_info=True)
         finally:
             self.stop()
+
+    def _render_and_report(self):
+        """Render and print report if enabled"""
+        render_ops = self.renderer.render(
+            max_distance=ESP_RENDER_DISTANCE,
+            include_grid=self.features.get("chunk_marking")
+        )
+        
+        if CONSOLE_OUTPUT and self.features.get("auto_report"):
+            self.renderer.print_report()
 
     async def _process_packet(self, packet: bytearray):
         """Process incoming packet from server"""
@@ -144,6 +193,12 @@ if __name__ == "__main__":
     print("\n" + "="*60)
     print("Minecraft 1.21.10 ESP Client (Fabric)")
     print("Real-time Chest ESP & Anomaly Detection")
-    print("="*60 + "\n")
+    print("="*60)
+    print("\nKEYBINDS:")
+    print("  P                 → Toggle Chest ESP")
+    print("  O                 → Toggle Anomaly Detection")
+    print("  L                 → Toggle Chunk Marking")
+    print("  RIGHT SHIFT       → Open Full Menu")
+    print("\n" + "="*60 + "\n")
     
     asyncio.run(main())
