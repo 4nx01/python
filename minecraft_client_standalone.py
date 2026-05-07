@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Minecraft 1.21.10 ESP Client - STANDALONE VERSION
-Real-time Chest Detection & Anomaly Marking for Fabric Servers
+Real-time Chest Detection & Spawner/Anomaly Marking for Fabric Servers
 Single file - No dependencies needed for core functionality
 """
 
@@ -28,6 +28,8 @@ PROTOCOL_VERSION = 767
 
 ESP_ENABLED = True
 ESP_RENDER_DISTANCE = 128
+SPAWNER_ESP_ENABLED = True
+SPAWNER_RENDER_DISTANCE = 256
 ANOMALY_ENABLED = True
 ANOMALY_SCAN_RADIUS = 256
 CHUNK_MARKING_ENABLED = True
@@ -59,6 +61,7 @@ class BlockType(Enum):
     CRAFTING_TABLE = "crafting_table"
     ANVIL = "anvil"
     HOPPER = "hopper"
+    SPAWNER = "spawner"
     AIR = "air"
 
 class AnomalyType(Enum):
@@ -67,6 +70,7 @@ class AnomalyType(Enum):
     PLAYER_ACTIVITY = "player_activity"
     CHEST_CLUSTER = "chest_cluster"
     SUSPICIOUS_ENTITY = "suspicious_entity"
+    SPAWNER = "spawner"
 
 @dataclass
 class Block:
@@ -154,11 +158,29 @@ class AnomalyDetector:
     def scan(self, radius: float = 256) -> List[Anomaly]:
         """Complete anomaly scan"""
         detected = []
+        detected.extend(self._detect_spawners(radius))
         detected.extend(self._detect_shulker_boxes(radius))
         detected.extend(self._detect_player_activity(radius))
         detected.extend(self._detect_chest_clusters(radius))
         detected.sort(key=lambda a: a.priority, reverse=True)
         return detected
+    
+    def _detect_spawners(self, radius: float) -> List[Anomaly]:
+        """Detect mob spawners"""
+        result = []
+        spawner_blocks = self.world.get_blocks_by_type(BlockType.SPAWNER, radius)
+        for block in spawner_blocks:
+            mob_type = block.metadata.get("spawn_type", "UNKNOWN")
+            anomaly = Anomaly(
+                anomaly_type=AnomalyType.SPAWNER,
+                priority=10,
+                position=block.pos,
+                description=f"Spawner detected: {mob_type}",
+                color=(255, 0, 255),
+                details={"mob_type": mob_type, "block_type": "spawner"}
+            )
+            result.append(anomaly)
+        return result
     
     def _detect_shulker_boxes(self, radius: float) -> List[Anomaly]:
         result = []
@@ -231,6 +253,7 @@ class ESPRenderer:
     def print_report(self):
         """Print ESP report"""
         chests = self.world.get_blocks_by_type(BlockType.CHEST, 256)
+        spawners = self.world.get_blocks_by_type(BlockType.SPAWNER, 256)
         anomalies = self.detector.scan(256)
         
         print("\n" + "="*70)
@@ -244,6 +267,13 @@ class ESPRenderer:
         for chest in sorted(chests, key=lambda c: c.distance_to(self.world.player_pos))[:10]:
             dist = chest.distance_to(self.world.player_pos)
             print(f"  📦 {chest.pos} ({dist:.1f}m)")
+        print()
+        
+        print(f"[SPAWNERS] {len(spawners)} found:")
+        for spawner in sorted(spawners, key=lambda s: s.distance_to(self.world.player_pos))[:10]:
+            dist = spawner.distance_to(self.world.player_pos)
+            mob_type = spawner.metadata.get("spawn_type", "UNKNOWN")
+            print(f"  💀 {spawner.pos} ({dist:.1f}m) - {mob_type}")
         print()
         
         print(f"[ANOMALIES] {len(anomalies)} detected:")
@@ -264,6 +294,7 @@ class MenuConfig:
         self.config_file = config_file
         self.config = {
             "chest_esp": True,
+            "spawner_esp": True,
             "anomaly_detection": True,
             "shulker_detection": True,
             "player_activity": True,
@@ -313,13 +344,14 @@ class InteractiveMenu:
         
         features = [
             ("1", "Chest ESP", self.config.get("chest_esp")),
-            ("2", "Anomaly Detection", self.config.get("anomaly_detection")),
-            ("3", "Shulker Detection", self.config.get("shulker_detection")),
-            ("4", "Player Activity", self.config.get("player_activity")),
-            ("5", "Chest Clusters", self.config.get("chest_clusters")),
-            ("6", "Suspicious Entities", self.config.get("suspicious_entities")),
-            ("7", "Chunk Marking", self.config.get("chunk_marking")),
-            ("8", "Auto-Report", self.config.get("auto_report")),
+            ("2", "Spawner ESP", self.config.get("spawner_esp")),
+            ("3", "Anomaly Detection", self.config.get("anomaly_detection")),
+            ("4", "Shulker Detection", self.config.get("shulker_detection")),
+            ("5", "Player Activity", self.config.get("player_activity")),
+            ("6", "Chest Clusters", self.config.get("chest_clusters")),
+            ("7", "Suspicious Entities", self.config.get("suspicious_entities")),
+            ("8", "Chunk Marking", self.config.get("chunk_marking")),
+            ("9", "Auto-Report", self.config.get("auto_report")),
         ]
         
         for key, name, status in features:
@@ -335,24 +367,27 @@ class InteractiveMenu:
             self.config.toggle("chest_esp")
             print("✓ Chest ESP toggled")
         elif choice == "2":
+            self.config.toggle("spawner_esp")
+            print("✓ Spawner ESP toggled")
+        elif choice == "3":
             self.config.toggle("anomaly_detection")
             print("✓ Anomaly Detection toggled")
-        elif choice == "3":
+        elif choice == "4":
             self.config.toggle("shulker_detection")
             print("✓ Shulker Detection toggled")
-        elif choice == "4":
+        elif choice == "5":
             self.config.toggle("player_activity")
             print("✓ Player Activity toggled")
-        elif choice == "5":
+        elif choice == "6":
             self.config.toggle("chest_clusters")
             print("✓ Chest Clusters toggled")
-        elif choice == "6":
+        elif choice == "7":
             self.config.toggle("suspicious_entities")
             print("✓ Suspicious Entities toggled")
-        elif choice == "7":
+        elif choice == "8":
             self.config.toggle("chunk_marking")
             print("✓ Chunk Marking toggled")
-        elif choice == "8":
+        elif choice == "9":
             self.config.toggle("auto_report")
             print("✓ Auto-Report toggled")
         elif choice.lower() == "a":
@@ -389,7 +424,7 @@ class MinecraftESPClient:
         """Main game loop"""
         self.running = True
         print("\n" + "="*70)
-        print("MINECRAFT 1.21.10 ESP CLIENT")
+        print("MINECRAFT 1.21.10 ESP CLIENT - SPAWNER EDITION")
         print("="*70)
         print("Loading test world...")
         
@@ -399,6 +434,7 @@ class MinecraftESPClient:
         print("✓ Ready!")
         print("\nKEYBINDS:")
         print("  P             → Toggle Chest ESP")
+        print("  U             → Toggle Spawner ESP")
         print("  O             → Toggle Anomaly Detection")
         print("  L             → Toggle Chunk Marking")
         print("  RIGHT SHIFT   → Open/Close Menu")
@@ -435,7 +471,9 @@ class MinecraftESPClient:
                 if self.ticks % 100 == 0:
                     status = []
                     if self.menu_config.get("chest_esp"):
-                        status.append("ESP")
+                        status.append("CHESTS")
+                    if self.menu_config.get("spawner_esp"):
+                        status.append("SPAWNERS")
                     if self.menu_config.get("anomaly_detection"):
                         status.append("ANOMALY")
                     if self.menu_config.get("chunk_marking"):
@@ -472,6 +510,13 @@ class MinecraftESPClient:
         # Shulker boxes
         self.world.add_block(1005, 65, 2005, BlockType.SHULKER_BOX)
         self.world.add_block(1006, 65, 2005, BlockType.SHULKER_BOX)
+        
+        # SPAWNERS - NEW!
+        self.world.add_block(950, 64, 2000, BlockType.SPAWNER, {"spawn_type": "CREEPER"})
+        self.world.add_block(1050, 64, 2000, BlockType.SPAWNER, {"spawn_type": "SKELETON"})
+        self.world.add_block(1000, 64, 1950, BlockType.SPAWNER, {"spawn_type": "ZOMBIE"})
+        self.world.add_block(1100, 64, 2100, BlockType.SPAWNER, {"spawn_type": "SPIDER"})
+        self.world.add_block(1200, 70, 2200, BlockType.SPAWNER, {"spawn_type": "ENDERMAN"})
         
         # Player
         self.world.update_player(1024, 64, 2024, 0, 0)
