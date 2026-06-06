@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "mixins": [
+    {
+      "config": "minecraft_esp_fabric.mixins.json",
+      "environment": "client"
+    }
+  ]
+}
